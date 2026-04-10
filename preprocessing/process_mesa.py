@@ -29,9 +29,10 @@ import argparse
 import logging
 import random
 import time
+from collections import deque
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 
 import neurokit2 as nk
 import numpy as np
@@ -122,9 +123,9 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
     out_path = Path(dst_dir) / f"{subject_key}.npz"
 
     if out_path.exists():
-        return subject_key, "skip"
+        return subject_key, "skip", 0.0
 
-    print(f"[{subject_key}] starting", flush=True)
+    print(f"[{subject_key}] loading from Drive...", flush=True)
     t0 = time.monotonic()
     try:
         npz = np.load(signal_path)
@@ -132,9 +133,13 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
         stages = npz["stages"]
         fs     = int(npz["fs"])
         ahi    = float(npz["ahi"])
+        print(f"[{subject_key}] loaded ({len(signal)} samples @ {fs} Hz) in {time.monotonic()-t0:.1f}s — running neurokit2...", flush=True)
 
+        t1 = time.monotonic()
         ibi_ds, fs_out, stages_ds, ahi_val = _process_subject(signal, fs, stages, ahi)
+        print(f"[{subject_key}] neurokit2 done in {time.monotonic()-t1:.1f}s — saving...", flush=True)
 
+        t2 = time.monotonic()
         np.savez(
             str(out_path),
             data=ibi_ds.astype(np.float32),
@@ -143,12 +148,12 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
             ahi=np.float32(ahi_val),
         )
         elapsed = time.monotonic() - t0
-        print(f"[{subject_key}] done in {elapsed:.1f}s", flush=True)
-        return subject_key, "ok"
+        print(f"[{subject_key}] saved in {time.monotonic()-t2:.1f}s  (total {elapsed:.1f}s)", flush=True)
+        return subject_key, "ok", elapsed
     except Exception as exc:
         elapsed = time.monotonic() - t0
         print(f"[{subject_key}] FAILED after {elapsed:.1f}s: {exc}", flush=True)
-        return subject_key, "warn"
+        return subject_key, "warn", elapsed
 
 
 # ---------------------------------------------------------------------------
