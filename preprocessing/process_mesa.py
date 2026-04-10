@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -182,11 +183,8 @@ def process_mesa(
         (f.stem, str(f), str(dst_dir)) for f in signal_files
     ]
 
-    already_done = [item for item in work_items if (dst_dir / f"{item[0]}.npz").exists()]
-    work_items   = [item for item in work_items if not (dst_dir / f"{item[0]}.npz").exists()]
-    if already_done:
-        logger.info("Skipping %d already-processed subject(s) (npz exists).", len(already_done))
-    logger.info("Subjects to process: %d", len(work_items))
+    random.shuffle(work_items)
+    logger.info("Subjects in pool (already-done will be skipped by workers): %d", len(work_items))
 
     n_workers = workers if workers is not None else max(1, cpu_count() // 2)
     logger.info("Using %d worker processes.", n_workers)
