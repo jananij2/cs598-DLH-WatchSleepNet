@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -122,15 +123,21 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
     if out_path.exists():
         return subject_key, "skip"
 
+    print(f"[{subject_key}] loading from Drive...", flush=True)
+    t0 = time.monotonic()
     try:
         npz = np.load(signal_path)
         signal = npz["signal"]
         stages = npz["stages"]
         fs     = int(npz["fs"])
         ahi    = float(npz["ahi"])
+        print(f"[{subject_key}] loaded ({len(signal)} samples @ {fs} Hz) in {time.monotonic()-t0:.1f}s — running biosppy...", flush=True)
 
+        t1 = time.monotonic()
         ibi_ds, fs_out, stages_ds, ahi_val = _process_subject(signal, fs, stages, ahi)
+        print(f"[{subject_key}] biosppy done in {time.monotonic()-t1:.1f}s — saving...", flush=True)
 
+        t2 = time.monotonic()
         np.savez(
             str(out_path),
             data=ibi_ds.astype(np.float32),
@@ -138,9 +145,10 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
             fs=np.int64(fs_out),
             ahi=np.float32(ahi_val),
         )
+        print(f"[{subject_key}] saved in {time.monotonic()-t2:.1f}s  (total {time.monotonic()-t0:.1f}s)", flush=True)
         return subject_key, "ok"
     except Exception as exc:
-        logger.warning("[%s] Failed: %s", subject_key, exc)
+        print(f"[{subject_key}] FAILED after {time.monotonic()-t0:.1f}s: {exc}", flush=True)
         return subject_key, "warn"
 
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import time
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -123,6 +124,8 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
     if out_path.exists():
         return subject_key, "skip"
 
+    print(f"[{subject_key}] starting", flush=True)
+    t0 = time.monotonic()
     try:
         npz = np.load(signal_path)
         signal = npz["signal"]
@@ -139,9 +142,12 @@ def _process_one(args: Tuple) -> Tuple[str, str]:
             fs=np.int64(fs_out),
             ahi=np.float32(ahi_val),
         )
+        elapsed = time.monotonic() - t0
+        print(f"[{subject_key}] done in {elapsed:.1f}s", flush=True)
         return subject_key, "ok"
     except Exception as exc:
-        logger.warning("[%s] Failed: %s", subject_key, exc)
+        elapsed = time.monotonic() - t0
+        print(f"[{subject_key}] FAILED after {elapsed:.1f}s: {exc}", flush=True)
         return subject_key, "warn"
 
 
