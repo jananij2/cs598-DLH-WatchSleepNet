@@ -195,23 +195,53 @@ def process_mesa(
     ]
 
     random.shuffle(work_items)
-    logger.info("Subjects in pool (already-done will be skipped by workers): %d", len(work_items))
+
+    # Count already-done via a single directory listing (fast, one I/O call).
+    existing = {f.stem for f in dst_dir.glob("mesa-*.npz")}
+    already_done = sum(1 for item in work_items if item[0] in existing)
+    remaining = len(work_items) - already_done
+    logger.info(
+        "Total subjects: %d  |  Already processed: %d  |  Remaining: ~%d",
+        len(work_items), already_done, remaining,
+    )
 
     n_workers = workers if workers is not None else max(1, cpu_count() // 2)
     logger.info("Using %d worker processes.", n_workers)
 
+    def _fmt_eta(seconds: float) -> str:
+        h, rem = divmod(int(seconds), 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}h{m:02d}m" if h else f"{m}m{s:02d}s"
+
+    recent_times: Deque[float] = deque(maxlen=20)
+    real_done = 0
     results: Dict[str, str] = {}
+
     try:
         with Pool(n_workers) as pool:
-            iterator = pool.imap_unordered(_process_one, work_items)
-            if tqdm:
-                iterator = tqdm(iterator, total=len(work_items), desc="MESA process")
-            for subject_key, outcome in iterator:
-                results[subject_key] = outcome
-                if outcome == "ok":
-                    logger.info("[%s] ok", subject_key)
-                elif outcome == "skip":
-                    logger.debug("[%s] skipped (already exists)", subject_key)
+            raw_iter = pool.imap_unordered(_process_one, work_items)
+            pbar = tqdm(total=remaining, desc="MESA process") if tqdm else None
+            try:
+                for subject_key, outcome, elapsed in raw_iter:
+                    results[subject_key] = outcome
+                    if outcome == "ok":
+                        logger.info("[%s] ok", subject_key)
+                        real_done += 1
+                        recent_times.append(elapsed)
+                        if pbar:
+                            pbar.update(1)
+                            avg = sum(recent_times) / len(recent_times)
+                            eta = avg * max(remaining - real_done, 0) / n_workers
+                            pbar.set_postfix({"avg": f"{avg:.0f}s", "ETA": _fmt_eta(eta)})
+                    elif outcome == "warn":
+                        real_done += 1
+                        if pbar:
+                            pbar.update(1)
+                    elif outcome == "skip":
+                        logger.debug("[%s] skipped (already exists)", subject_key)
+            finally:
+                if pbar:
+                    pbar.close()
     except KeyboardInterrupt:
         ok = sum(1 for v in results.values() if v == "ok")
         skipped = sum(1 for v in results.values() if v == "skip")
